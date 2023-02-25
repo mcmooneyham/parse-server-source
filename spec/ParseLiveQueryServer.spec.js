@@ -9,6 +9,8 @@ const queryHashValue = 'hash';
 const testUserId = 'userId';
 const testClassName = 'TestObject';
 
+const timeout = () => jasmine.timeout(100);
+
 describe('ParseLiveQueryServer', function () {
   beforeEach(function (done) {
     // Mock ParseWebSocketServer
@@ -92,29 +94,29 @@ describe('ParseLiveQueryServer', function () {
     expect(parseLiveQueryServer.subscriptions.size).toBe(0);
   });
 
-  it('can be initialized from ParseServer', function () {
+  it('can be initialized from ParseServer', async () => {
     const httpServer = {};
-    const parseLiveQueryServer = ParseServer.createLiveQueryServer(httpServer, {});
+    const parseLiveQueryServer = await ParseServer.createLiveQueryServer(httpServer, {});
 
     expect(parseLiveQueryServer.clientId).toBeUndefined();
     expect(parseLiveQueryServer.clients.size).toBe(0);
     expect(parseLiveQueryServer.subscriptions.size).toBe(0);
   });
 
-  it('can be initialized from ParseServer without httpServer', function (done) {
-    const parseLiveQueryServer = ParseServer.createLiveQueryServer(undefined, {
+  it('can be initialized from ParseServer without httpServer', async () => {
+    const parseLiveQueryServer = await ParseServer.createLiveQueryServer(undefined, {
       port: 22345,
     });
 
     expect(parseLiveQueryServer.clientId).toBeUndefined();
     expect(parseLiveQueryServer.clients.size).toBe(0);
     expect(parseLiveQueryServer.subscriptions.size).toBe(0);
-    parseLiveQueryServer.server.close(done);
+    await new Promise(resolve => parseLiveQueryServer.server.close(resolve));
   });
 
   describe_only_db('mongo')('initialization', () => {
-    it('can be initialized through ParseServer without liveQueryServerOptions', function (done) {
-      const parseServer = ParseServer.start({
+    it('can be initialized through ParseServer without liveQueryServerOptions', async () => {
+      const parseServer = await ParseServer.startApp({
         appId: 'hello',
         masterKey: 'world',
         port: 22345,
@@ -124,16 +126,14 @@ describe('ParseLiveQueryServer', function () {
           classNames: ['Yolo'],
         },
         startLiveQueryServer: true,
-        serverStartComplete: () => {
-          expect(parseServer.liveQueryServer).not.toBeUndefined();
-          expect(parseServer.liveQueryServer.server).toBe(parseServer.server);
-          parseServer.server.close(done);
-        },
       });
+      expect(parseServer.liveQueryServer).not.toBeUndefined();
+      expect(parseServer.liveQueryServer.server).toBe(parseServer.server);
+      await new Promise(resolve => parseServer.server.close(resolve));
     });
 
-    it('can be initialized through ParseServer with liveQueryServerOptions', function (done) {
-      const parseServer = ParseServer.start({
+    it('can be initialized through ParseServer with liveQueryServerOptions', async () => {
+      const parseServer = await ParseServer.startApp({
         appId: 'hello',
         masterKey: 'world',
         port: 22346,
@@ -145,14 +145,10 @@ describe('ParseLiveQueryServer', function () {
         liveQueryServerOptions: {
           port: 22347,
         },
-        serverStartComplete: () => {
-          expect(parseServer.liveQueryServer).not.toBeUndefined();
-          expect(parseServer.liveQueryServer.server).not.toBe(parseServer.server);
-          parseServer.liveQueryServer.server.close(
-            parseServer.server.close.bind(parseServer.server, done)
-          );
-        },
       });
+      expect(parseServer.liveQueryServer).not.toBeUndefined();
+      expect(parseServer.liveQueryServer.server).not.toBe(parseServer.server);
+      await new Promise(resolve => parseServer.server.close(resolve));
     });
   });
 
@@ -298,7 +294,7 @@ describe('ParseLiveQueryServer', function () {
       where: {
         key: 'value',
       },
-      fields: ['test'],
+      keys: ['test'],
     };
     const requestId = 2;
     const request = {
@@ -335,7 +331,7 @@ describe('ParseLiveQueryServer', function () {
       where: {
         key: 'value',
       },
-      fields: ['test'],
+      keys: ['test'],
     };
     const requestId = 2;
     const request = {
@@ -382,7 +378,7 @@ describe('ParseLiveQueryServer', function () {
       where: {
         key: 'value',
       },
-      fields: ['test'],
+      keys: ['test'],
     };
     await addMockSubscription(parseLiveQueryServer, clientId, requestId, parseWebSocket, query);
     // Add subscription for mock client 2
@@ -394,7 +390,7 @@ describe('ParseLiveQueryServer', function () {
       where: {
         key: 'value',
       },
-      fields: ['testAgain'],
+      keys: ['testAgain'],
     };
     const requestIdAgain = 1;
     await addMockSubscription(
@@ -744,10 +740,10 @@ describe('ParseLiveQueryServer', function () {
 
     // Make sure we send command to client, since _matchesACL is async, we have to
     // wait and check
-    setTimeout(function () {
-      expect(client.pushDelete).toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushDelete).toHaveBeenCalled();
+    done();
   });
 
   it('has no subscription and can handle object save command', async () => {
@@ -779,14 +775,14 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we do not send command to client
-    setTimeout(function () {
-      expect(client.pushCreate).not.toHaveBeenCalled();
-      expect(client.pushEnter).not.toHaveBeenCalled();
-      expect(client.pushUpdate).not.toHaveBeenCalled();
-      expect(client.pushDelete).not.toHaveBeenCalled();
-      expect(client.pushLeave).not.toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+    expect(client.pushEnter).not.toHaveBeenCalled();
+    expect(client.pushUpdate).not.toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).not.toHaveBeenCalled();
+    done();
   });
 
   it('can handle object enter command which matches some subscriptions', async done => {
@@ -816,14 +812,14 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send enter command to client
-    setTimeout(function () {
-      expect(client.pushCreate).not.toHaveBeenCalled();
-      expect(client.pushEnter).toHaveBeenCalled();
-      expect(client.pushUpdate).not.toHaveBeenCalled();
-      expect(client.pushDelete).not.toHaveBeenCalled();
-      expect(client.pushLeave).not.toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+    expect(client.pushEnter).toHaveBeenCalled();
+    expect(client.pushUpdate).not.toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).not.toHaveBeenCalled();
+    done();
   });
 
   it('can handle object update command which matches some subscriptions', async done => {
@@ -849,14 +845,14 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send update command to client
-    setTimeout(function () {
-      expect(client.pushCreate).not.toHaveBeenCalled();
-      expect(client.pushEnter).not.toHaveBeenCalled();
-      expect(client.pushUpdate).toHaveBeenCalled();
-      expect(client.pushDelete).not.toHaveBeenCalled();
-      expect(client.pushLeave).not.toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+    expect(client.pushEnter).not.toHaveBeenCalled();
+    expect(client.pushUpdate).toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).not.toHaveBeenCalled();
+    done();
   });
 
   it('can handle object leave command which matches some subscriptions', async done => {
@@ -886,14 +882,81 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send leave command to client
-    setTimeout(function () {
-      expect(client.pushCreate).not.toHaveBeenCalled();
-      expect(client.pushEnter).not.toHaveBeenCalled();
-      expect(client.pushUpdate).not.toHaveBeenCalled();
-      expect(client.pushDelete).not.toHaveBeenCalled();
-      expect(client.pushLeave).toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+    expect(client.pushEnter).not.toHaveBeenCalled();
+    expect(client.pushUpdate).not.toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).toHaveBeenCalled();
+    done();
+  });
+
+  it('sends correct events for object with multiple subscriptions', async done => {
+    const parseLiveQueryServer = new ParseLiveQueryServer({});
+
+    Parse.Cloud.afterLiveQueryEvent('TestObject', () => {
+      // Simulate delay due to trigger, auth, etc.
+      return jasmine.timeout(10);
+    });
+
+    // Make mock request message
+    const message = generateMockMessage(true);
+    // Add mock client
+    const clientId = 1;
+    const client = addMockClient(parseLiveQueryServer, clientId);
+    client.sessionToken = 'sessionToken';
+
+    // Mock queryHash for this special test
+    const mockQueryHash = jasmine.createSpy('matchesQuery').and.returnValue('hash1');
+    jasmine.mockLibrary('../lib/LiveQuery/QueryTools', 'queryHash', mockQueryHash);
+    // Add mock subscription 1
+    const requestId2 = 2;
+    await addMockSubscription(parseLiveQueryServer, clientId, requestId2, null, null, 'hash1');
+
+    // Mock queryHash for this special test
+    const mockQueryHash2 = jasmine.createSpy('matchesQuery').and.returnValue('hash2');
+    jasmine.mockLibrary('../lib/LiveQuery/QueryTools', 'queryHash', mockQueryHash2);
+    // Add mock subscription 2
+    const requestId3 = 3;
+    await addMockSubscription(parseLiveQueryServer, clientId, requestId3, null, null, 'hash2');
+    // Mock _matchesSubscription to return matching
+    // In order to mimic a leave, then enter, we need original match return true
+    // and the current match return false, then the other way around
+    let counter = 0;
+    parseLiveQueryServer._matchesSubscription = function (parseObject) {
+      if (!parseObject) {
+        return false;
+      }
+      counter += 1;
+      // true, false, false, true
+      return counter < 2 || counter > 3;
+    };
+    parseLiveQueryServer._matchesACL = function () {
+      // Simulate call
+      return jasmine.timeout(10).then(() => true);
+    };
+    parseLiveQueryServer._onAfterSave(message);
+
+    // Make sure we send leave and enter command to client
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+    expect(client.pushEnter).toHaveBeenCalledTimes(1);
+    expect(client.pushEnter).toHaveBeenCalledWith(
+      requestId3,
+      { key: 'value', className: 'TestObject' },
+      { key: 'originalValue', className: 'TestObject' }
+    );
+    expect(client.pushUpdate).not.toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).toHaveBeenCalledTimes(1);
+    expect(client.pushLeave).toHaveBeenCalledWith(
+      requestId2,
+      { key: 'value', className: 'TestObject' },
+      { key: 'originalValue', className: 'TestObject' }
+    );
+    done();
   });
 
   it('can handle update command with original object', async done => {
@@ -930,15 +993,15 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send update command to client
-    setTimeout(function () {
-      expect(client.pushUpdate).toHaveBeenCalled();
-      const args = parseWebSocket.send.calls.mostRecent().args;
-      const toSend = JSON.parse(args[0]);
+    await timeout();
 
-      expect(toSend.object).toBeDefined();
-      expect(toSend.original).toBeDefined();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    expect(client.pushUpdate).toHaveBeenCalled();
+    const args = parseWebSocket.send.calls.mostRecent().args;
+    const toSend = JSON.parse(args[0]);
+
+    expect(toSend.object).toBeDefined();
+    expect(toSend.original).toBeDefined();
+    done();
   });
 
   it('can handle object create command which matches some subscriptions', async done => {
@@ -964,17 +1027,69 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send create command to client
-    setTimeout(function () {
-      expect(client.pushCreate).toHaveBeenCalled();
-      expect(client.pushEnter).not.toHaveBeenCalled();
-      expect(client.pushUpdate).not.toHaveBeenCalled();
-      expect(client.pushDelete).not.toHaveBeenCalled();
-      expect(client.pushLeave).not.toHaveBeenCalled();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).toHaveBeenCalled();
+    expect(client.pushEnter).not.toHaveBeenCalled();
+    expect(client.pushUpdate).not.toHaveBeenCalled();
+    expect(client.pushDelete).not.toHaveBeenCalled();
+    expect(client.pushLeave).not.toHaveBeenCalled();
+    done();
   });
 
   it('can handle create command with fields', async done => {
+    jasmine.restoreLibrary('../lib/LiveQuery/Client', 'Client');
+    const Client = require('../lib/LiveQuery/Client').Client;
+    const parseLiveQueryServer = new ParseLiveQueryServer({});
+    // Make mock request message
+    const message = generateMockMessage();
+
+    const clientId = 1;
+    const parseWebSocket = {
+      clientId,
+      send: jasmine.createSpy('send'),
+    };
+    const client = new Client(clientId, parseWebSocket);
+    spyOn(client, 'pushCreate').and.callThrough();
+    parseLiveQueryServer.clients.set(clientId, client);
+
+    // Add mock subscription
+    const requestId = 2;
+    const query = {
+      className: testClassName,
+      where: {
+        key: 'value',
+      },
+      keys: ['test'],
+    };
+    await addMockSubscription(parseLiveQueryServer, clientId, requestId, parseWebSocket, query);
+    // Mock _matchesSubscription to return matching
+    parseLiveQueryServer._matchesSubscription = function (parseObject) {
+      if (!parseObject) {
+        return false;
+      }
+      return true;
+    };
+    parseLiveQueryServer._matchesACL = function () {
+      return Promise.resolve(true);
+    };
+
+    parseLiveQueryServer._onAfterSave(message);
+
+    // Make sure we send create command to client
+    await timeout();
+
+    expect(client.pushCreate).toHaveBeenCalled();
+    const args = parseWebSocket.send.calls.mostRecent().args;
+    const toSend = JSON.parse(args[0]);
+    expect(toSend.object).toBeDefined();
+    expect(toSend.original).toBeUndefined();
+    done();
+  });
+
+  it('can deprecate fields', async () => {
+    const Deprecator = require('../lib/Deprecator/Deprecator');
+    const spy = spyOn(Deprecator, 'logRuntimeDeprecation').and.callFake(() => {});
     jasmine.restoreLibrary('../lib/LiveQuery/Client', 'Client');
     const Client = require('../lib/LiveQuery/Client').Client;
     const parseLiveQueryServer = new ParseLiveQueryServer({});
@@ -1014,14 +1129,73 @@ describe('ParseLiveQueryServer', function () {
     parseLiveQueryServer._onAfterSave(message);
 
     // Make sure we send create command to client
-    setTimeout(function () {
-      expect(client.pushCreate).toHaveBeenCalled();
-      const args = parseWebSocket.send.calls.mostRecent().args;
-      const toSend = JSON.parse(args[0]);
-      expect(toSend.object).toBeDefined();
-      expect(toSend.original).toBeUndefined();
-      done();
-    }, jasmine.ASYNC_TEST_WAIT_TIME);
+    await timeout();
+
+    expect(client.pushCreate).toHaveBeenCalled();
+    const args = parseWebSocket.send.calls.mostRecent().args;
+    const toSend = JSON.parse(args[0]);
+    expect(toSend.object).toBeDefined();
+    expect(toSend.original).toBeUndefined();
+    expect(spy).toHaveBeenCalledWith({
+      usage: 'Subscribing using fields parameter',
+      solution:
+        `Subscribe using "keys" instead.`,
+    });
+  });
+
+  it('can handle create command with watch', async () => {
+    jasmine.restoreLibrary('../lib/LiveQuery/Client', 'Client');
+    const Client = require('../lib/LiveQuery/Client').Client;
+    const parseLiveQueryServer = new ParseLiveQueryServer({});
+    // Make mock request message
+    const message = generateMockMessage();
+
+    const clientId = 1;
+    const parseWebSocket = {
+      clientId,
+      send: jasmine.createSpy('send'),
+    };
+    const client = new Client(clientId, parseWebSocket);
+    spyOn(client, 'pushCreate').and.callThrough();
+    parseLiveQueryServer.clients.set(clientId, client);
+
+    // Add mock subscription
+    const requestId = 2;
+    const query = {
+      className: testClassName,
+      where: {
+        key: 'value',
+      },
+      watch: ['yolo'],
+    };
+    await addMockSubscription(parseLiveQueryServer, clientId, requestId, parseWebSocket, query);
+    // Mock _matchesSubscription to return matching
+    parseLiveQueryServer._matchesSubscription = function (parseObject) {
+      if (!parseObject) {
+        return false;
+      }
+      return true;
+    };
+    parseLiveQueryServer._matchesACL = function () {
+      return Promise.resolve(true);
+    };
+
+    parseLiveQueryServer._onAfterSave(message);
+
+    // Make sure we send create command to client
+    await timeout();
+
+    expect(client.pushCreate).not.toHaveBeenCalled();
+
+    message.currentParseObject.set('yolo', 'test');
+    parseLiveQueryServer._onAfterSave(message);
+
+    await timeout();
+
+    const args = parseWebSocket.send.calls.mostRecent().args;
+    const toSend = JSON.parse(args[0]);
+    expect(toSend.object).toBeDefined();
+    expect(toSend.original).toBeUndefined();
   });
 
   it('can match subscription for null or undefined parse object', function () {
@@ -1731,7 +1905,8 @@ describe('ParseLiveQueryServer', function () {
     clientId,
     requestId,
     parseWebSocket,
-    query
+    query,
+    customQueryHashValue
   ) {
     // If parseWebSocket is null, we use the default one
     if (!parseWebSocket) {
@@ -1746,7 +1921,7 @@ describe('ParseLiveQueryServer', function () {
         where: {
           key: 'value',
         },
-        fields: ['test'],
+        keys: ['test'],
       };
     }
     const request = {
@@ -1759,12 +1934,12 @@ describe('ParseLiveQueryServer', function () {
     // Make mock subscription
     const subscription = parseLiveQueryServer.subscriptions
       .get(query.className)
-      .get(queryHashValue);
+      .get(customQueryHashValue || queryHashValue);
     subscription.hasSubscribingClient = function () {
       return false;
     };
     subscription.className = query.className;
-    subscription.hash = queryHashValue;
+    subscription.hash = customQueryHashValue || queryHashValue;
     if (subscription.clientRequestIds && subscription.clientRequestIds.has(clientId)) {
       subscription.clientRequestIds.get(clientId).push(requestId);
     } else {

@@ -1,7 +1,7 @@
 'use strict';
 const request = require('../lib/request');
 const parseServerPackage = require('../package.json');
-const MockEmailAdapterWithOptions = require('./MockEmailAdapterWithOptions');
+const MockEmailAdapterWithOptions = require('./support/MockEmailAdapterWithOptions');
 const ParseServer = require('../lib/index');
 const Config = require('../lib/Config');
 const express = require('express');
@@ -61,109 +61,96 @@ describe('server', () => {
     });
   });
 
-  it('fails if database is unreachable', done => {
-    reconfigureServer({
+  it('fails if database is unreachable', async () => {
+    const server = new ParseServer.default({
+      ...defaultConfiguration,
       databaseAdapter: new MongoStorageAdapter({
         uri: 'mongodb://fake:fake@localhost:43605/drew3',
         mongoOptions: {
           serverSelectionTimeoutMS: 2000,
         },
       }),
-    }).catch(() => {
-      //Need to use rest api because saving via JS SDK results in fail() not getting called
-      request({
-        method: 'POST',
-        url: 'http://localhost:8378/1/classes/NewClass',
-        headers: {
-          'X-Parse-Application-Id': 'test',
-          'X-Parse-REST-API-Key': 'rest',
-        },
-        body: {},
-      }).then(fail, response => {
-        expect(response.status).toEqual(500);
-        const body = response.data;
-        expect(body.code).toEqual(1);
-        expect(body.message).toEqual('Internal server error.');
-        reconfigureServer().then(done, done);
-      });
     });
+    const error = await server.start().catch(e => e);
+    expect(`${error}`.includes('MongoServerSelectionError')).toBeTrue();
+    await reconfigureServer();
   });
 
-  it('can load email adapter via object', done => {
-    reconfigureServer({
-      appName: 'unused',
-      verifyUserEmails: true,
-      emailAdapter: MockEmailAdapterWithOptions({
-        fromAddress: 'parse@example.com',
-        apiKey: 'k',
-        domain: 'd',
-      }),
-      publicServerURL: 'http://localhost:8378/1',
-    }).then(done, fail);
-  });
-
-  it('can load email adapter via class', done => {
-    reconfigureServer({
-      appName: 'unused',
-      verifyUserEmails: true,
-      emailAdapter: {
-        class: MockEmailAdapterWithOptions,
-        options: {
+  describe('mail adapter', () => {
+    it('can load email adapter via object', done => {
+      reconfigureServer({
+        appName: 'unused',
+        verifyUserEmails: true,
+        emailAdapter: MockEmailAdapterWithOptions({
           fromAddress: 'parse@example.com',
           apiKey: 'k',
           domain: 'd',
-        },
-      },
-      publicServerURL: 'http://localhost:8378/1',
-    }).then(done, fail);
-  });
+        }),
+        publicServerURL: 'http://localhost:8378/1',
+      }).then(done, fail);
+    });
 
-  it('can load email adapter via module name', done => {
-    reconfigureServer({
-      appName: 'unused',
-      verifyUserEmails: true,
-      emailAdapter: {
-        module: '@parse/simple-mailgun-adapter',
-        options: {
-          fromAddress: 'parse@example.com',
-          apiKey: 'k',
-          domain: 'd',
+    it('can load email adapter via class', done => {
+      reconfigureServer({
+        appName: 'unused',
+        verifyUserEmails: true,
+        emailAdapter: {
+          class: MockEmailAdapterWithOptions,
+          options: {
+            fromAddress: 'parse@example.com',
+            apiKey: 'k',
+            domain: 'd',
+          },
         },
-      },
-      publicServerURL: 'http://localhost:8378/1',
-    }).then(done, fail);
-  });
+        publicServerURL: 'http://localhost:8378/1',
+      }).then(done, fail);
+    });
 
-  it('can load email adapter via only module name', done => {
-    reconfigureServer({
-      appName: 'unused',
-      verifyUserEmails: true,
-      emailAdapter: '@parse/simple-mailgun-adapter',
-      publicServerURL: 'http://localhost:8378/1',
-    }).catch(error => {
-      expect(error).toEqual('SimpleMailgunAdapter requires an API Key, domain, and fromAddress.');
-      done();
+    it('can load email adapter via module name', async () => {
+      const options = {
+        appName: 'unused',
+        verifyUserEmails: true,
+        emailAdapter: {
+          module: 'mock-mail-adapter',
+          options: {},
+        },
+        publicServerURL: 'http://localhost:8378/1',
+      };
+      await reconfigureServer(options);
+      const config = Config.get('test');
+      const mailAdapter = config.userController.adapter;
+      expect(mailAdapter.sendMail).toBeDefined();
+    });
+
+    it('can load email adapter via only module name', async () => {
+      const options = {
+        appName: 'unused',
+        verifyUserEmails: true,
+        emailAdapter: 'mock-mail-adapter',
+        publicServerURL: 'http://localhost:8378/1',
+      };
+      await reconfigureServer(options);
+      const config = Config.get('test');
+      const mailAdapter = config.userController.adapter;
+      expect(mailAdapter.sendMail).toBeDefined();
+    });
+
+    it('throws if you initialize email adapter incorrectly', async () => {
+      const options = {
+        appName: 'unused',
+        verifyUserEmails: true,
+        emailAdapter: {
+          module: 'mock-mail-adapter',
+          options: { throw: true },
+        },
+        publicServerURL: 'http://localhost:8378/1',
+      };
+      expectAsync(reconfigureServer(options)).toBeRejected('MockMailAdapterConstructor');
     });
   });
 
-  it('throws if you initialize email adapter incorrectly', done => {
-    reconfigureServer({
-      appName: 'unused',
-      verifyUserEmails: true,
-      emailAdapter: {
-        module: '@parse/simple-mailgun-adapter',
-        options: {
-          domain: 'd',
-        },
-      },
-      publicServerURL: 'http://localhost:8378/1',
-    }).catch(error => {
-      expect(error).toEqual('SimpleMailgunAdapter requires an API Key, domain, and fromAddress.');
-      done();
-    });
-  });
-
-  it('can report the server version', done => {
+  it('can report the server version', async done => {
+    await reconfigureServer();
     request({
       url: 'http://localhost:8378/1/serverInfo',
       headers: {
@@ -177,7 +164,8 @@ describe('server', () => {
     });
   });
 
-  it('can properly sets the push support', done => {
+  it('can properly sets the push support', async done => {
+    await reconfigureServer();
     // default config passes push options
     const config = Config.get('test');
     expect(config.hasPushSupport).toEqual(true);
@@ -292,79 +280,47 @@ describe('server', () => {
     });
   });
 
-  it('can create a parse-server v1', done => {
+  it('can create a parse-server v1', async () => {
+    await reconfigureServer({ appId: 'aTestApp' });
     const parseServer = new ParseServer.default(
       Object.assign({}, defaultConfiguration, {
         appId: 'aTestApp',
         masterKey: 'aTestMasterKey',
         serverURL: 'http://localhost:12666/parse',
-        serverStartComplete: () => {
-          expect(Parse.applicationId).toEqual('aTestApp');
-          const app = express();
-          app.use('/parse', parseServer.app);
-
-          const server = app.listen(12666);
-          const obj = new Parse.Object('AnObject');
-          let objId;
-          obj
-            .save()
-            .then(obj => {
-              objId = obj.id;
-              const q = new Parse.Query('AnObject');
-              return q.first();
-            })
-            .then(obj => {
-              expect(obj.id).toEqual(objId);
-              server.close(done);
-            })
-            .catch(() => {
-              server.close(done);
-            });
-        },
       })
     );
+    await parseServer.start();
+    expect(Parse.applicationId).toEqual('aTestApp');
+    const app = express();
+    app.use('/parse', parseServer.app);
+    const server = app.listen(12666);
+    const obj = new Parse.Object('AnObject');
+    await obj.save();
+    const query = await new Parse.Query('AnObject').first();
+    expect(obj.id).toEqual(query.id);
+    await new Promise(resolve => server.close(resolve));
   });
 
-  it('can create a parse-server v2', done => {
-    let objId;
-    let server;
+  it('can create a parse-server v2', async () => {
+    await reconfigureServer({ appId: 'anOtherTestApp' });
     const parseServer = ParseServer.ParseServer(
       Object.assign({}, defaultConfiguration, {
         appId: 'anOtherTestApp',
         masterKey: 'anOtherTestMasterKey',
         serverURL: 'http://localhost:12667/parse',
-        serverStartComplete: error => {
-          const promise = error ? Promise.reject(error) : Promise.resolve();
-          promise
-            .then(() => {
-              expect(Parse.applicationId).toEqual('anOtherTestApp');
-              const app = express();
-              app.use('/parse', parseServer);
-
-              server = app.listen(12667);
-              const obj = new Parse.Object('AnObject');
-              return obj.save();
-            })
-            .then(obj => {
-              objId = obj.id;
-              const q = new Parse.Query('AnObject');
-              return q.first();
-            })
-            .then(obj => {
-              expect(obj.id).toEqual(objId);
-              server.close(done);
-            })
-            .catch(error => {
-              fail(JSON.stringify(error));
-              if (server) {
-                server.close(done);
-              } else {
-                done();
-              }
-            });
-        },
       })
     );
+
+    expect(Parse.applicationId).toEqual('anOtherTestApp');
+    await parseServer.start();
+    const app = express();
+    app.use('/parse', parseServer.app);
+    const server = app.listen(12667);
+    const obj = new Parse.Object('AnObject');
+    await obj.save();
+    const q = await new Parse.Query('AnObject').first();
+    expect(obj.id).toEqual(q.id);
+    await new Promise(resolve => server.close(resolve));
   });
 
   it('has createLiveQueryServer', done => {
@@ -376,7 +332,9 @@ describe('server', () => {
   });
 
   it('exposes correct adapters', done => {
-    expect(ParseServer.S3Adapter).toThrow();
+    expect(ParseServer.S3Adapter).toThrow(
+      'S3Adapter is not provided by parse-server anymore; please install @parse/s3-files-adapter'
+    );
     expect(ParseServer.GCSAdapter).toThrow(
       'GCSAdapter is not provided by parse-server anymore; please install @parse/gcs-files-adapter'
     );
@@ -445,6 +403,26 @@ describe('server', () => {
       .then(done);
   });
 
+  it('fails if default limit is negative', async () => {
+    await expectAsync(reconfigureServer({ defaultLimit: -1 })).toBeRejectedWith(
+      'Default limit must be a value greater than 0.'
+    );
+  });
+
+  it('fails if default limit is wrong type', async () => {
+    for (const value of ['invalid', {}, [], true]) {
+      await expectAsync(reconfigureServer({ defaultLimit: value })).toBeRejectedWith(
+        'Default limit must be a number.'
+      );
+    }
+  });
+
+  it('fails if default limit is zero', async () => {
+    await expectAsync(reconfigureServer({ defaultLimit: 0 })).toBeRejectedWith(
+      'Default limit must be a value greater than 0.'
+    );
+  });
+
   it('fails if maxLimit is negative', done => {
     reconfigureServer({ maxLimit: -100 }).catch(error => {
       expect(error).toEqual('Max limit must be a value greater than 0.');
@@ -458,7 +436,9 @@ describe('server', () => {
 
   it('fails if you provides invalid ip in masterKeyIps', done => {
     reconfigureServer({ masterKeyIps: ['invalidIp', '1.2.3.4'] }).catch(error => {
-      expect(error).toEqual('Invalid ip in masterKeyIps: invalidIp');
+      expect(error).toEqual(
+        'The Parse Server option "masterKeyIps" contains an invalid IP address "invalidIp".'
+      );
       done();
     });
   });
@@ -467,6 +447,11 @@ describe('server', () => {
     reconfigureServer({
       masterKeyIps: ['1.2.3.4', '2001:0db8:0000:0042:0000:8a2e:0370:7334'],
     }).then(done);
+  });
+
+  it('should set default masterKeyIps for IPv4 and IPv6 localhost', () => {
+    const definitions = require('../lib/Options/Definitions.js');
+    expect(definitions.ParseServerOptions.masterKeyIps.default).toEqual(['127.0.0.1', '::1']);
   });
 
   it('should load a middleware', done => {
@@ -496,7 +481,7 @@ describe('server', () => {
     await reconfigureServer({
       directAccess: true,
     });
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(2);
     Parse.CoreManager.setRESTController(RESTController);
   });
 
@@ -514,8 +499,95 @@ describe('server', () => {
       .catch(done.fail);
   });
 
+  it('can call start', async () => {
+    await reconfigureServer({ appId: 'aTestApp' });
+    const config = {
+      ...defaultConfiguration,
+      appId: 'aTestApp',
+      masterKey: 'aTestMasterKey',
+      serverURL: 'http://localhost:12701/parse',
+    };
+    const parseServer = new ParseServer.ParseServer(config);
+    await parseServer.start();
+    expect(Parse.applicationId).toEqual('aTestApp');
+    expect(Parse.serverURL).toEqual('http://localhost:12701/parse');
+    const app = express();
+    app.use('/parse', parseServer.app);
+    const server = app.listen(12701);
+    const testObject = new Parse.Object('TestObject');
+    await expectAsync(testObject.save()).toBeResolved();
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  it('start is required to mount', async () => {
+    await reconfigureServer({ appId: 'aTestApp' });
+    const config = {
+      ...defaultConfiguration,
+      appId: 'aTestApp',
+      masterKey: 'aTestMasterKey',
+      serverURL: 'http://localhost:12701/parse',
+    };
+    const parseServer = new ParseServer.ParseServer(config);
+    expect(Parse.applicationId).toEqual('aTestApp');
+    expect(Parse.serverURL).toEqual('http://localhost:12701/parse');
+    const app = express();
+    app.use('/parse', parseServer.app);
+    const server = app.listen(12701);
+    const response = await request({
+      headers: {
+        'X-Parse-Application-Id': 'aTestApp',
+      },
+      method: 'POST',
+      url: 'http://localhost:12701/parse/classes/TestObject',
+    }).catch(e => new Parse.Error(e.data.code, e.data.error));
+    expect(response).toEqual(
+      new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Invalid server state: initialized')
+    );
+    const health = await request({
+      url: 'http://localhost:12701/parse/health',
+    }).catch(e => e);
+    spyOn(console, 'warn').and.callFake(() => {});
+    const verify = await ParseServer.default.verifyServerUrl();
+    expect(verify).not.toBeTrue();
+    expect(console.warn).toHaveBeenCalledWith(
+      `\nWARNING, Unable to connect to 'http://localhost:12701/parse'. Cloud code and push notifications may be unavailable!\n`
+    );
+    expect(health.data.status).toBe('initialized');
+    expect(health.status).toBe(503);
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  it('can get starting state', async () => {
+    await reconfigureServer({ appId: 'test2', silent: false });
+    const parseServer = new ParseServer.ParseServer({
+      ...defaultConfiguration,
+      appId: 'test2',
+      masterKey: 'abc',
+      serverURL: 'http://localhost:12668/parse',
+      async cloud() {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      },
+    });
+    const express = require('express');
+    const app = express();
+    app.use('/parse', parseServer.app);
+    const server = app.listen(12668);
+    const startingPromise = parseServer.start();
+    const health = await request({
+      url: 'http://localhost:12668/parse/health',
+    }).catch(e => e);
+    expect(health.data.status).toBe('starting');
+    expect(health.status).toBe(503);
+    expect(health.headers['retry-after']).toBe('1');
+    const response = await ParseServer.default.verifyServerUrl();
+    expect(response).toBeTrue();
+    await startingPromise;
+    await new Promise(resolve => server.close(resolve));
+  });
+
   it('should not fail when Google signin is introduced without the optional clientId', done => {
     const jwt = require('jsonwebtoken');
+    const authUtils = require('../lib/Adapters/Auth/utils');
 
     reconfigureServer({
       auth: { google: {} },
@@ -528,7 +600,7 @@ describe('server', () => {
           sub: 'the_user_id',
         };
         const fakeDecodedToken = { header: { kid: '123', alg: 'RS256' } };
-        spyOn(jwt, 'decode').and.callFake(() => fakeDecodedToken);
+        spyOn(authUtils, 'getHeaderFromToken').and.callFake(() => fakeDecodedToken);
         spyOn(jwt, 'verify').and.callFake(() => fakeClaim);
         const user = new Parse.User();
         user

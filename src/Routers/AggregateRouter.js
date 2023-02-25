@@ -4,38 +4,6 @@ import * as middleware from '../middlewares';
 import Parse from 'parse/node';
 import UsersRouter from './UsersRouter';
 
-const BASE_KEYS = ['where', 'distinct', 'pipeline', 'hint', 'explain'];
-
-const PIPELINE_KEYS = [
-  'addFields',
-  'bucket',
-  'bucketAuto',
-  'collStats',
-  'count',
-  'currentOp',
-  'facet',
-  'geoNear',
-  'graphLookup',
-  'group',
-  'indexStats',
-  'limit',
-  'listLocalSessions',
-  'listSessions',
-  'lookup',
-  'match',
-  'out',
-  'project',
-  'redact',
-  'replaceRoot',
-  'sample',
-  'skip',
-  'sort',
-  'sortByCount',
-  'unwind',
-];
-
-const ALLOWED_KEYS = [...BASE_KEYS, ...PIPELINE_KEYS];
-
 export class AggregateRouter extends ClassesRouter {
   handleFind(req) {
     const body = Object.assign(req.body, ClassesRouter.JSONFromQuery(req.query));
@@ -114,34 +82,39 @@ export class AggregateRouter extends ClassesRouter {
 
     return pipeline.map(stage => {
       const keys = Object.keys(stage);
-      if (keys.length != 1) {
-        throw new Error(`Pipeline stages should only have one key found ${keys.join(', ')}`);
+      if (keys.length !== 1) {
+        throw new Parse.Error(
+          Parse.Error.INVALID_QUERY,
+          `Pipeline stages should only have one key but found ${keys.join(', ')}.`
+        );
       }
       return AggregateRouter.transformStage(keys[0], stage);
     });
   }
 
   static transformStage(stageName, stage) {
-    if (ALLOWED_KEYS.indexOf(stageName) === -1) {
-      throw new Parse.Error(Parse.Error.INVALID_QUERY, `Invalid parameter for query: ${stageName}`);
+    const skipKeys = ['distinct', 'where'];
+    if (skipKeys.includes(stageName)) {
+      return;
     }
-    if (stageName === 'group') {
-      if (Object.prototype.hasOwnProperty.call(stage[stageName], '_id')) {
+    if (stageName[0] !== '$') {
+      throw new Parse.Error(Parse.Error.INVALID_QUERY, `Invalid aggregate stage '${stageName}'.`);
+    }
+    if (stageName === '$group') {
+      if (Object.prototype.hasOwnProperty.call(stage[stageName], 'objectId')) {
         throw new Parse.Error(
           Parse.Error.INVALID_QUERY,
-          `Invalid parameter for query: group. Please use objectId instead of _id`
+          `Cannot use 'objectId' in aggregation stage $group.`
         );
       }
-      if (!Object.prototype.hasOwnProperty.call(stage[stageName], 'objectId')) {
+      if (!Object.prototype.hasOwnProperty.call(stage[stageName], '_id')) {
         throw new Parse.Error(
           Parse.Error.INVALID_QUERY,
-          `Invalid parameter for query: group. objectId is required`
+          `Invalid parameter for query: group. Missing key _id`
         );
       }
-      stage[stageName]._id = stage[stageName].objectId;
-      delete stage[stageName].objectId;
     }
-    return { [`$${stageName}`]: stage[stageName] };
+    return { [stageName]: stage[stageName] };
   }
 
   mountRoutes() {
