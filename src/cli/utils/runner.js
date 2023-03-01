@@ -3,9 +3,9 @@ import program from './commander';
 function logStartupOptions(options) {
   for (const key in options) {
     let value = options[key];
-    if (key == 'masterKey') {
-      value = '***REDACTED***';
-    }
+    //if (key == 'masterKey') {
+    //  value = '***REDACTED***';
+    //}
     if (key == 'push' && options.verbose != true) {
       value = '***REDACTED***';
     }
