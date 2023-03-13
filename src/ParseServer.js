@@ -9,6 +9,8 @@ var batch = require('./batch'),
   path = require('path'),
   fs = require('fs');
 
+// Demo
+
 import { ParseServerOptions, LiveQueryServerOptions } from './Options';
 import defaults from './defaults';
 import * as logging from './logger';
